@@ -10,16 +10,34 @@
 #define STACK_SIZE  8192
 #define MAX_THREAD  4
 
+struct context {
+  uint64 ra;
+  uint64 sp;
+
+  // callee-saved
+  uint64 s0;
+  uint64 s1;
+  uint64 s2;
+  uint64 s3;
+  uint64 s4;
+  uint64 s5;
+  uint64 s6;
+  uint64 s7;
+  uint64 s8;
+  uint64 s9;
+  uint64 s10;
+  uint64 s11;
+};
 
 struct thread {
   char       stack[STACK_SIZE]; /* the thread's stack */
   int        state;             /* FREE, RUNNING, RUNNABLE */
-  // TODO: include context of thread
+  struct context context;
 };
 struct thread all_thread[MAX_THREAD];
 struct thread *current_thread;
-extern void thread_switch(uint64, uint64);
-              
+extern void thread_switch(struct context *old, struct context *new);
+
 void 
 thread_init(void)
 {
@@ -40,7 +58,7 @@ thread_schedule(void)
   t = current_thread + 1;
   for(int i = 0; i < MAX_THREAD; i++){
     if(t >= all_thread + MAX_THREAD)
-      t = all_thread;
+      t = all_thread;  // this refer to the first item, pointer to all_thread[0]
     if(t->state == RUNNABLE) {
       next_thread = t;
       break;
@@ -59,6 +77,9 @@ thread_schedule(void)
     current_thread = next_thread;
     // TODO: invoke thread_switch to switch from t to next_thread:
     // thread_switch(??, ??);
+    // thread switch store the 1st argument's context, then load the 2nd argument's. Following sched(), use & to get address of context
+    thread_switch(&t->context, &next_thread->context);
+
   } else
     next_thread = 0;
 }
@@ -72,8 +93,13 @@ thread_create(void (*func)())
     if (t->state == FREE) break;
   }
   t->state = RUNNABLE;
-  // TODO: ensure `func` will be executed on its own stack
-  // ...
+
+  memset(&t->context, 0, sizeof(t->context)); // restore context
+  t->context.ra = (uint64)func;  // when thread is first ran, it jump to the provided function
+  // t->stack is now the lowest point. If anything get written, it will go into another thread's stack below it, so must add STACKSIZE so it start from top of its own allocated stack space.
+  t->context.sp = (uint64)t->stack + STACK_SIZE; // need an explict cast here. An array like t->stack decays into a pointer to the first element which is a pointer to a char, char*. By default a pointer is not the same as uint unless explictly cast so.
+  // p->context.sp = p->kstack + PGSIZE; works because in proc, kstack is defined as uint64, not a char.
+  t->context.sp -= t->context.sp % 16; // align to 16byte
 }
 
 void 
