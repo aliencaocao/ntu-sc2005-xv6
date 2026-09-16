@@ -460,7 +460,8 @@ scheduler(void)
     int found = 0;
     for(p = proc; p < &proc[NPROC]; p++) {
       acquire(&p->lock);
-      if(p->state == RUNNABLE) {
+      if(p->state == RUNNABLE && p->pid % 2 == 0) {
+        // priotize even PID first (pid % 2 = 0)
         // Switch to chosen process.  It is the process's job
         // to release its lock and then reacquire it
         // before jumping back to us.
@@ -476,7 +477,35 @@ scheduler(void)
       release(&p->lock);
     }
     if(found == 0) {
-      // nothing to run; stop running on this core until an interrupt.
+      // no even PID runnable, run the next avail one
+      for(p = proc; p < &proc[NPROC]; p++) {
+      acquire(&p->lock);
+      if(p->state == RUNNABLE  && p->pid % 2 == 1) {
+        // if we reach here, it means no more even PID left, so just take the next runnable
+        // Switch to chosen process.  It is the process's job
+        // to release its lock and then reacquire it
+        // before jumping back to us.
+        p->state = RUNNING;
+        c->proc = p;
+        swtch(&c->context, &p->context);
+
+        // Process is done running for now.
+        // It should have changed its p->state before coming back.
+        c->proc = 0;
+        found = 1;
+
+        // we just spent a time quantum running odd PID.
+        // A even PID might be awake now, so must add a break here such that the loop above runs again, else we are just following the same table order
+        // to break safely, need to release the current lock too
+        release(&p->lock);
+        break;
+      }
+      release(&p->lock);
+    }
+    }
+    
+    if(found == 0) {
+      // truely nothing to run; stop running on this core until an interrupt.
       asm volatile("wfi");
     }
   }
